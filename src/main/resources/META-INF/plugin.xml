@@ -9,7 +9,7 @@
     <resource-bundle>messages.MyBundle</resource-bundle>
 
     <extensions defaultExtensionNs="com.intellij">
-        <toolWindow factoryClass="com.github.niyazm524.codexwebstormplugin.toolWindow.MyToolWindowFactory" id="MyToolWindow"/>
+        <toolWindow factoryClass="com.github.niyazm524.codexwebstormplugin.toolWindow.CodexToolWindowFactory" id="Codex"/>
         <postStartupActivity implementation="com.github.niyazm524.codexwebstormplugin.startup.MyProjectActivity" />
     </extensions>
 </idea-plugin>

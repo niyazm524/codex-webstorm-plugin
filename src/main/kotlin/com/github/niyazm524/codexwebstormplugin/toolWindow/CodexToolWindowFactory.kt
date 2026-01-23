@@ -2,6 +2,7 @@ package com.github.niyazm524.codexwebstormplugin.toolWindow
 
 import com.github.niyazm524.codexwebstormplugin.services.CodexAppServer
 import com.github.niyazm524.codexwebstormplugin.services.CodexAppServerListener
+import com.intellij.icons.AllIcons
 import com.intellij.openapi.project.Project
 import com.intellij.openapi.wm.ToolWindow
 import com.intellij.openapi.wm.ToolWindowFactory
@@ -14,18 +15,24 @@ import com.intellij.util.ui.JBUI
 import org.json.JSONArray
 import org.json.JSONObject
 import java.awt.BorderLayout
+import java.awt.Graphics
+import java.awt.Graphics2D
 import java.awt.Dimension
+import java.awt.FlowLayout
+import java.awt.RenderingHints
 import java.awt.event.ActionEvent
 import java.util.UUID
 import javax.swing.AbstractAction
 import javax.swing.BoxLayout
 import javax.swing.JButton
+import javax.swing.JComboBox
 import javax.swing.JComponent
 import javax.swing.JLabel
 import javax.swing.JPanel
 import javax.swing.JTextPane
 import javax.swing.KeyStroke
 import javax.swing.SwingUtilities
+import javax.swing.ScrollPaneConstants
 import javax.swing.text.StyleConstants
 
 class CodexToolWindowFactory : ToolWindowFactory {
@@ -71,13 +78,29 @@ class CodexToolWindowFactory : ToolWindowFactory {
 
         fun getContent() =
                 JBPanel<JBPanel<*>>(BorderLayout()).apply {
+                    val header =
+                            JBPanel<JBPanel<*>>(BorderLayout()).apply {
+                                isOpaque = false
+                                border = JBUI.Borders.empty(10, 12, 6, 12)
+                                add(
+                                        JLabel("CODEX").apply {
+                                            foreground = JBColor(0xCFCFCF, 0xCFCFCF)
+                                        },
+                                        BorderLayout.WEST
+                                )
+                            }
+
                     messageList =
                             JBPanel<JBPanel<*>>().apply {
                                 layout = BoxLayout(this, BoxLayout.Y_AXIS)
                                 isOpaque = false
                             }
                     val transcriptScroll =
-                            JBScrollPane(messageList).apply { preferredSize = Dimension(420, 360) }
+                            JBScrollPane(messageList).apply {
+                                preferredSize = Dimension(420, 360)
+                                horizontalScrollBarPolicy =
+                                        ScrollPaneConstants.HORIZONTAL_SCROLLBAR_NEVER
+                            }
 
                     val inputField =
                             JBTextArea().apply {
@@ -90,8 +113,30 @@ class CodexToolWindowFactory : ToolWindowFactory {
                             JBScrollPane(inputField).apply {
                                 preferredSize = Dimension(420, 90)
                                 border = JBUI.Borders.empty()
+                                horizontalScrollBarPolicy =
+                                        ScrollPaneConstants.HORIZONTAL_SCROLLBAR_NEVER
                             }
-                    val sendButton = JButton("Send")
+                    val sendButton =
+                            JButton("Send").apply {
+                                icon = AllIcons.Actions.RunAll
+                            }
+                    val attachButton =
+                            JButton().apply {
+                                toolTipText = "Attach image"
+                                icon = AllIcons.General.Add
+                            }
+                    val modeCombo =
+                            JComboBox(arrayOf("Chat", "Agent", "Agent with full access")).apply {
+                                toolTipText = "Mode"
+                            }
+                    val modelCombo =
+                            JComboBox(arrayOf("gpt-5.1-codex", "gpt-5-codex")).apply {
+                                toolTipText = "Model"
+                            }
+                    val reasoningCombo =
+                            JComboBox(arrayOf("low", "medium", "high", "very high")).apply {
+                                toolTipText = "Reasoning effort"
+                            }
 
                     fun sendMessage() {
                         val text = inputField.text.trim()
@@ -118,9 +163,20 @@ class CodexToolWindowFactory : ToolWindowFactory {
                                 add(sendButton, BorderLayout.EAST)
                             }
 
+                    val optionsPanel =
+                            JPanel(FlowLayout(FlowLayout.LEFT, 8, 0)).apply {
+                                isOpaque = false
+                                border = JBUI.Borders.empty(6, 12, 6, 12)
+                                add(attachButton)
+                                add(modeCombo)
+                                add(modelCombo)
+                                add(reasoningCombo)
+                            }
+
                     val clearButton =
                             JButton("Clear").apply {
                                 toolTipText = "Clear chat history"
+                                icon = AllIcons.Actions.GC
                                 addActionListener {
                                     messages.clear()
                                     assistantMessageIndexByItemId.clear()
@@ -129,7 +185,45 @@ class CodexToolWindowFactory : ToolWindowFactory {
                                     renderTranscript()
                                 }
                             }
-                    val toolbarPanel = JPanel(BorderLayout()).apply { add(clearButton, BorderLayout.EAST) }
+                    val stopButton =
+                            JButton("Stop").apply {
+                                toolTipText = "Stop Codex app-server"
+                                icon = AllIcons.Actions.Suspend
+                                addActionListener { stopServer() }
+                            }
+                    val restartButton =
+                            JButton("Restart").apply {
+                                toolTipText = "Restart Codex app-server"
+                                icon = AllIcons.Actions.Refresh
+                                addActionListener { restartServer() }
+                            }
+                    val toolbarPanel =
+                            JPanel(BorderLayout()).apply {
+                                val buttons = JPanel().apply {
+                                    isOpaque = false
+                                    add(stopButton)
+                                    add(restartButton)
+                                    add(clearButton)
+                                }
+                                add(buttons, BorderLayout.EAST)
+                            }
+                    val topPanel =
+                            JPanel(BorderLayout()).apply {
+                                isOpaque = false
+                                add(header, BorderLayout.WEST)
+                                add(toolbarPanel, BorderLayout.EAST)
+                            }
+                    val bottomPanel =
+                            JPanel(BorderLayout()).apply {
+                                isOpaque = false
+                                val stacked = JPanel().apply {
+                                    layout = BoxLayout(this, BoxLayout.Y_AXIS)
+                                    isOpaque = false
+                                    add(inputPanel)
+                                    add(optionsPanel)
+                                }
+                                add(stacked, BorderLayout.CENTER)
+                            }
 
                     if (!appServerStarted) {
                         val result = appServer.start()
@@ -144,9 +238,9 @@ class CodexToolWindowFactory : ToolWindowFactory {
                         }
                     }
 
-                    add(toolbarPanel, BorderLayout.NORTH)
+                    add(topPanel, BorderLayout.NORTH)
                     add(transcriptScroll, BorderLayout.CENTER)
-                    add(inputPanel, BorderLayout.SOUTH)
+                    add(bottomPanel, BorderLayout.SOUTH)
                 }
 
         override fun onNotification(method: String, params: JSONObject) {
@@ -323,6 +417,18 @@ class CodexToolWindowFactory : ToolWindowFactory {
                         appendMessage(MessageKind.TOOL, "File changes proposed.")
                     }
                 }
+                "mcpToolCall" -> {
+                    val server = item.optString("server", "mcp")
+                    val tool = item.optString("tool", "")
+                    val status = item.optString("status", "running")
+                    val label = "MCP: $server/$tool ($status)"
+                    runOnUi {
+                        val message = appendMessage(MessageKind.TOOL, label)
+                        if (itemId.isNotBlank()) {
+                            toolMessageIndexByItemId[itemId] = messages.indexOf(message)
+                        }
+                    }
+                }
                 else -> Unit
             }
         }
@@ -350,6 +456,26 @@ class CodexToolWindowFactory : ToolWindowFactory {
                             if (diff.isNotBlank()) {
                                 appendMessage(MessageKind.DIFF, diff)
                             }
+                        }
+                    }
+                }
+                "mcpToolCall" -> {
+                    val status = item.optString("status", "completed")
+                    val result = item.optString("result", "")
+                    val label =
+                            if (result.isNotBlank()) {
+                                "MCP completed ($status): $result"
+                            } else {
+                                "MCP completed ($status)."
+                            }
+                    runOnUi {
+                        val index = toolMessageIndexByItemId[itemId]
+                        if (index == null) {
+                            appendMessage(MessageKind.TOOL, label)
+                        } else {
+                            val message = messages.getOrNull(index) ?: return@runOnUi
+                            message.content = label
+                            renderTranscript()
                         }
                     }
                 }
@@ -412,6 +538,30 @@ class CodexToolWindowFactory : ToolWindowFactory {
 
         private fun appendSystemMessage(text: String) {
             appendMessage(MessageKind.SYSTEM, text)
+        }
+
+        private fun stopServer() {
+            appServer.stop()
+            appServerStarted = false
+            threadId = null
+            activeTurnId = null
+            appendSystemMessage("Codex app-server stopped.")
+        }
+
+        private fun restartServer() {
+            appServer.stop()
+            appServerStarted = false
+            threadId = null
+            activeTurnId = null
+            val result = appServer.start()
+            if (result.isFailure) {
+                appendSystemMessage(
+                        "Failed to restart Codex app-server: ${result.exceptionOrNull()?.message}"
+                )
+            } else {
+                appServerStarted = true
+                appendSystemMessage("Codex app-server restarted.")
+            }
         }
 
         private fun appendMessage(kind: MessageKind, text: String): ChatMessage {
@@ -498,21 +648,18 @@ class CodexToolWindowFactory : ToolWindowFactory {
 
         private fun renderUserBubble(text: String): JComponent {
             val bubble =
-                    JBPanel<JBPanel<*>>(BorderLayout()).apply {
-                        isOpaque = true
-                        background = JBColor(0xE6F0FF, 0x2B3A55)
-                        border = JBUI.Borders.empty(8, 10)
-                    }
-            val label =
-                    JLabel("<html>${escapeHtml(text)}</html>").apply {
-                        foreground = JBColor(0x1F4B99, 0xBBD0FF)
-                    }
-            bubble.add(label, BorderLayout.CENTER)
+                    BubblePanel(
+                            text,
+                            { if (::messageList.isInitialized) messageList.width else 0 },
+                            JBColor(0xE6F0FF, 0x2B3A55),
+                            JBColor(0x1F4B99, 0xBBD0FF)
+                    )
 
             return JBPanel<JBPanel<*>>(BorderLayout()).apply {
                 isOpaque = false
                 border = JBUI.Borders.empty(6, 12)
                 add(bubble, BorderLayout.EAST)
+                alignmentX = 1.0f
             }
         }
 
@@ -532,6 +679,60 @@ class CodexToolWindowFactory : ToolWindowFactory {
                 border = JBUI.Borders.empty(6, 12)
                 add(pane, BorderLayout.CENTER)
             }
+        }
+
+        private open class RoundedPanel(private val radius: Int, private val fill: JBColor) :
+                JBPanel<JBPanel<*>>(BorderLayout()) {
+            init {
+                isOpaque = false
+            }
+
+            override fun paintComponent(graphics: Graphics) {
+                val g2 = graphics.create() as Graphics2D
+                g2.setRenderingHint(RenderingHints.KEY_ANTIALIASING, RenderingHints.VALUE_ANTIALIAS_ON)
+                g2.color = fill
+                g2.fillRoundRect(0, 0, width, height, radius, radius)
+                g2.dispose()
+                super.paintComponent(graphics)
+            }
+        }
+
+        private class BubblePanel(
+                text: String,
+                private val containerWidthProvider: () -> Int,
+                fill: JBColor,
+                textColor: JBColor,
+        ) : RoundedPanel(18, fill) {
+            private val textArea =
+                    JBTextArea().apply {
+                        isEditable = false
+                        isOpaque = false
+                        lineWrap = true
+                        wrapStyleWord = true
+                        this.text = text
+                        foreground = textColor
+                        border = JBUI.Borders.empty()
+                    }
+
+            init {
+                border = JBUI.Borders.empty(12, 16)
+                add(textArea, BorderLayout.CENTER)
+            }
+
+            override fun getPreferredSize(): Dimension {
+                val containerWidth = containerWidthProvider().coerceAtLeast(420)
+                val maxWidth = (containerWidth * 0.7).toInt().coerceAtLeast(240)
+                val horizontalPadding = 32
+                val verticalPadding = 24
+                textArea.setSize(maxWidth - horizontalPadding, Int.MAX_VALUE)
+                val textSize = textArea.preferredSize
+                return Dimension(
+                        maxWidth.coerceAtMost(textSize.width + horizontalPadding),
+                        textSize.height + verticalPadding
+                )
+            }
+
+            override fun getMaximumSize(): Dimension = preferredSize
         }
 
         private fun renderSystemMessage(text: String): JComponent {

@@ -52,6 +52,8 @@ class CodexAppServer(
         }
     }
 
+    fun isRunning(): Boolean = process != null
+
     fun sendRequest(method: String, params: JSONObject): CompletableFuture<JSONObject> {
         val id = nextId.getAndIncrement()
         val future = CompletableFuture<JSONObject>()

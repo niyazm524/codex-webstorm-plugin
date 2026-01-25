@@ -11,18 +11,24 @@ import java.awt.Dimension
 import java.awt.FlowLayout
 import java.awt.event.ActionEvent
 import javax.swing.AbstractAction
+import javax.swing.Box
 import javax.swing.BoxLayout
 import javax.swing.JButton
 import javax.swing.JComboBox
 import javax.swing.JComponent
 import javax.swing.JLabel
+import javax.swing.JList
 import javax.swing.JPanel
 import javax.swing.KeyStroke
 import javax.swing.ScrollPaneConstants
+import javax.swing.DefaultListCellRenderer
+import javax.swing.Icon
 
 class CodexChatViewPanel(
     private val messageRenderer: CodexMessageRenderer,
 ) {
+    private data class ComboOption(val label: String, val icon: Icon)
+
     private val messageList =
             JBPanel<JBPanel<*>>().apply {
                 layout = BoxLayout(this, BoxLayout.Y_AXIS)
@@ -36,6 +42,7 @@ class CodexChatViewPanel(
             JButton(AllIcons.Actions.Back).apply {
                 toolTipText = "Back to chats"
                 isVisible = false
+                isFocusPainted = false
             }
     private val inputField =
             JBTextArea().apply {
@@ -45,8 +52,10 @@ class CodexChatViewPanel(
                 toolTipText = "Ask Codex... (Ctrl+Enter to send)"
             }
     private val sendButton =
-            JButton("Send").apply {
+            JButton().apply {
                 icon = AllIcons.Actions.RunAll
+                toolTipText = "Send"
+                isFocusPainted = false
                 addActionListener { handleSendOrStop() }
             }
 
@@ -60,10 +69,11 @@ class CodexChatViewPanel(
         val header =
                 JBPanel<JBPanel<*>>(BorderLayout()).apply {
                     isOpaque = false
-                    border = JBUI.Borders.empty(10, 12, 6, 12)
-                    val titleRow = JPanel(FlowLayout(FlowLayout.LEFT, 6, 0)).apply {
+                    border = JBUI.Borders.empty(10, 6, 6, 12)
+                    val titleRow = JPanel(FlowLayout(FlowLayout.LEFT, 0, 0)).apply {
                         isOpaque = false
                         add(backButton)
+                        add(Box.createHorizontalStrut(4))
                         add(chatNameLabel)
                     }
                     add(titleRow, BorderLayout.CENTER)
@@ -85,19 +95,43 @@ class CodexChatViewPanel(
                 JButton().apply {
                     toolTipText = "Attach image"
                     icon = AllIcons.General.Add
+                    isFocusPainted = false
                 }
         val modeCombo =
-                JComboBox(arrayOf("Chat", "Agent", "Agent with full access")).apply {
-                    toolTipText = "Mode"
+                JComboBox(
+                        arrayOf(
+                                ComboOption("Chat", AllIcons.Actions.Lightning),
+                                ComboOption("Agent", AllIcons.Actions.RunAll),
+                                ComboOption("Agent with full access", AllIcons.Actions.Resume),
+                        )
+                ).apply {
+                    toolTipText = "Agent mode"
                 }
         val modelCombo =
-                JComboBox(arrayOf("gpt-5.1-codex", "gpt-5-codex")).apply {
+                JComboBox(
+                        arrayOf(
+                                ComboOption("gpt-5.1-codex", AllIcons.General.Settings),
+                                ComboOption("gpt-5-codex", AllIcons.General.Settings),
+                        )
+                ).apply {
                     toolTipText = "Model"
                 }
         val reasoningCombo =
-                JComboBox(arrayOf("low", "medium", "high", "very high")).apply {
+                JComboBox(
+                        arrayOf(
+                            ComboOption("low", AllIcons.Actions.Lightning),
+                            ComboOption("medium", AllIcons.Actions.Lightning),
+                            ComboOption("high", AllIcons.Actions.Lightning),
+                            ComboOption("very high", AllIcons.Actions.Lightning),
+                        )
+                ).apply {
                     toolTipText = "Reasoning effort"
                 }
+
+        applySquareButton(attachButton)
+        applyIconCombo(modeCombo)
+        applyIconCombo(modelCombo)
+        applyIconCombo(reasoningCombo)
 
         inputField.inputMap.put(KeyStroke.getKeyStroke("ctrl ENTER"), "sendMessage")
         inputField.actionMap.put(
@@ -110,43 +144,32 @@ class CodexChatViewPanel(
         )
 
         val inputPanel =
-                JPanel(BorderLayout(8, 0)).apply {
+                JPanel(BorderLayout()).apply {
+                    border = JBUI.Borders.empty(6, 8, 6, 8)
                     add(inputScroll, BorderLayout.CENTER)
-                    add(sendButton, BorderLayout.EAST)
                 }
 
         val optionsPanel =
                 JPanel(FlowLayout(FlowLayout.LEFT, 8, 0)).apply {
                     isOpaque = false
-                    border = JBUI.Borders.empty(6, 12, 6, 12)
+                    border = JBUI.Borders.empty(4, 6, 6, 12)
                     add(attachButton)
                     add(modeCombo)
                     add(modelCombo)
                     add(reasoningCombo)
                 }
 
-        val clearButton =
-                JButton("Clear").apply {
-                    toolTipText = "Clear chat history"
-                    icon = AllIcons.Actions.GC
-                    addActionListener { onClear?.invoke() }
-                }
-        val toolbarPanel =
-                JPanel(BorderLayout()).apply {
-                    val buttons = JPanel().apply {
-                        isOpaque = false
-                        add(clearButton)
-                    }
-                    add(buttons, BorderLayout.EAST)
-                }
+        // Clear button removed per request.
 
         backButton.addActionListener { onBack?.invoke() }
+        applySquareButton(backButton)
+        applySquareButton(sendButton)
+        applySquareButton(attachButton)
 
         val topPanel =
                 JPanel(BorderLayout()).apply {
                     isOpaque = false
                     add(header, BorderLayout.WEST)
-                    add(toolbarPanel, BorderLayout.EAST)
                 }
         val bottomPanel =
                 JPanel(BorderLayout()).apply {
@@ -155,7 +178,19 @@ class CodexChatViewPanel(
                         layout = BoxLayout(this, BoxLayout.Y_AXIS)
                         isOpaque = false
                         add(inputPanel)
-                        add(optionsPanel)
+                        add(
+                                JPanel(BorderLayout()).apply {
+                                    isOpaque = false
+                                    add(optionsPanel, BorderLayout.WEST)
+                                    add(
+                                            JPanel(FlowLayout(FlowLayout.RIGHT, 0, 0)).apply {
+                                                isOpaque = false
+                                                add(sendButton)
+                                            },
+                                            BorderLayout.EAST
+                                    )
+                                }
+                        )
                     }
                     add(stacked, BorderLayout.CENTER)
                 }
@@ -209,11 +244,11 @@ class CodexChatViewPanel(
     fun setStreaming(streaming: Boolean) {
         isStreaming = streaming
         if (streaming) {
-            sendButton.text = "Stop"
             sendButton.icon = AllIcons.Actions.Suspend
+            sendButton.toolTipText = "Stop"
         } else {
-            sendButton.text = "Send"
             sendButton.icon = AllIcons.Actions.RunAll
+            sendButton.toolTipText = "Send"
         }
     }
 
@@ -226,5 +261,44 @@ class CodexChatViewPanel(
         if (text.isBlank()) return
         inputField.text = ""
         onSend?.invoke(text)
+    }
+
+    private fun applySquareButton(button: JButton) {
+        val size = 36
+        button.preferredSize = Dimension(size, size)
+        button.minimumSize = Dimension(size, size)
+        button.maximumSize = Dimension(size, size)
+    }
+
+    private fun applyIconCombo(combo: JComboBox<ComboOption>) {
+        combo.renderer =
+                object : DefaultListCellRenderer() {
+                    override fun getListCellRendererComponent(
+                            list: JList<*>?,
+                            value: Any?,
+                            index: Int,
+                            isSelected: Boolean,
+                            cellHasFocus: Boolean
+                    ): java.awt.Component {
+                        val label =
+                                super.getListCellRendererComponent(
+                                        list,
+                                        value,
+                                        index,
+                                        isSelected,
+                                        cellHasFocus
+                                ) as JLabel
+                        val option = value as? ComboOption
+                        if (option != null) {
+                            label.icon = option.icon
+                            label.text = if (index == -1) "" else option.label
+                        }
+                        return label
+                    }
+                }
+        val size = Dimension(36, 36)
+        combo.preferredSize = size
+        combo.minimumSize = size
+        combo.maximumSize = size
     }
 }

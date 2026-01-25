@@ -5,6 +5,7 @@ import com.intellij.ui.components.JBPanel
 import com.intellij.ui.components.JBTextArea
 import com.intellij.util.ui.JBUI
 import java.awt.BorderLayout
+import java.awt.FlowLayout
 import java.awt.Dimension
 import java.awt.Graphics
 import java.awt.Graphics2D
@@ -52,11 +53,11 @@ class CodexMessageRenderer(private val containerWidthProvider: () -> Int) {
                         JBColor(0x1F4B99, 0xBBD0FF)
                 )
 
-        return JBPanel<JBPanel<*>>(BorderLayout()).apply {
+        return JBPanel<JBPanel<*>>(FlowLayout(FlowLayout.RIGHT, 0, 0)).apply {
             isOpaque = false
             border = JBUI.Borders.empty(6, 12)
-            add(bubble, BorderLayout.EAST)
-            alignmentX = 1.0f
+            add(bubble)
+            maximumSize = Dimension(Int.MAX_VALUE, bubble.preferredSize.height + 12)
         }
     }
 

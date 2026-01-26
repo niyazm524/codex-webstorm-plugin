@@ -2,6 +2,7 @@ package com.github.niyazm524.codexwebstormplugin.toolWindow
 
 import com.github.niyazm524.codexwebstormplugin.services.CodexAppServer
 import com.github.niyazm524.codexwebstormplugin.services.CodexAppServerListener
+import com.intellij.openapi.diagnostic.thisLogger
 import com.intellij.openapi.wm.ToolWindow
 import org.json.JSONArray
 import org.json.JSONObject
@@ -13,12 +14,14 @@ import javax.swing.SwingUtilities
 
 class CodexToolWindowPanel(toolWindow: ToolWindow) : CodexAppServerListener {
 
+    private val log = thisLogger()
     private val messages = mutableListOf<ChatMessage>()
     private val assistantMessageIndexByItemId = mutableMapOf<String, Int>()
     private val toolMessageIndexByItemId = mutableMapOf<String, Int>()
     private var diffMessageId: String? = null
     private var threadId: String? = null
     private var activeTurnId: String? = null
+    private var bulkRenderDepth = 0
     private var pendingChatTitle: String? = null
     private val chatSessions = mutableListOf<ChatSession>()
     private val workingDirectory = toolWindow.project.basePath ?: System.getProperty("user.dir")
@@ -378,7 +381,9 @@ class CodexToolWindowPanel(toolWindow: ToolWindow) : CodexAppServerListener {
                         content = text
                 )
         messages.add(message)
-        renderTranscript()
+        if (bulkRenderDepth == 0) {
+            renderTranscript()
+        }
         return message
     }
 
@@ -395,7 +400,9 @@ class CodexToolWindowPanel(toolWindow: ToolWindow) : CodexAppServerListener {
                         actions = actions
                 )
         messages.add(message)
-        renderTranscript()
+        if (bulkRenderDepth == 0) {
+            renderTranscript()
+        }
     }
 
     private fun updateMessageContent(
@@ -406,13 +413,17 @@ class CodexToolWindowPanel(toolWindow: ToolWindow) : CodexAppServerListener {
         val index = indexMap[itemId] ?: return
         val message = messages.getOrNull(index) ?: return
         message.content = text
-        renderTranscript()
+        if (bulkRenderDepth == 0) {
+            renderTranscript()
+        }
     }
 
     private fun updateMessageById(messageId: String, text: String) {
         val message = messages.firstOrNull { it.id == messageId } ?: return
         message.content = text
-        renderTranscript()
+        if (bulkRenderDepth == 0) {
+            renderTranscript()
+        }
     }
 
     private fun runOnUi(action: () -> Unit) {
@@ -420,7 +431,12 @@ class CodexToolWindowPanel(toolWindow: ToolWindow) : CodexAppServerListener {
     }
 
     private fun renderTranscript() {
+        val startNs = System.nanoTime()
         chatViewPanel.renderMessages(messages)
+        val elapsedMs = (System.nanoTime() - startNs) / 1_000_000
+        if (bulkRenderDepth > 0 || elapsedMs > 50) {
+            log.info("renderMessages count=${messages.size} took ${elapsedMs}ms (bulk=$bulkRenderDepth)")
+        }
     }
 
     private fun updateChatList() {
@@ -528,12 +544,17 @@ class CodexToolWindowPanel(toolWindow: ToolWindow) : CodexAppServerListener {
     private fun loadChatHistory(id: String) {
         if (!appServerStarted) return
         val params = JSONObject().put("threadId", id)
+        val startNs = System.nanoTime()
         appServer
                 .sendRequest("thread/resume", params)
                 .thenAccept { result ->
+                    val elapsedMs = (System.nanoTime() - startNs) / 1_000_000
                     val thread = result.optJSONObject("thread")
                     val items = thread?.optJSONArray("items")
                     val turns = thread?.optJSONArray("turns")
+                    log.info(
+                            "thread/resume $id completed in ${elapsedMs}ms (items=${items?.length() ?: 0}, turns=${turns?.length() ?: 0})"
+                    )
                     if (items != null) {
                         renderItemsFromArray(items)
                     } else if (turns != null) {
@@ -549,34 +570,64 @@ class CodexToolWindowPanel(toolWindow: ToolWindow) : CodexAppServerListener {
     }
 
     private fun renderItemsFromArray(items: JSONArray) {
+        val startNs = System.nanoTime()
+        val itemCount = items.length()
         runOnUi {
-            for (index in 0 until items.length()) {
-                val item = items.optJSONObject(index) ?: continue
-                val type = item.optString("type")
-                when (type) {
-                    "userMessage" -> {
-                        val content = item.optJSONArray("content")?.optJSONObject(0)?.optString("text")
-                        if (!content.isNullOrBlank()) {
-                            appendMessage(MessageKind.USER, content)
-                        }
+            val beforeCount = messages.size
+            withBulkRender {
+                appendItemsFromArray(items)
+            }
+            val appended = messages.size - beforeCount
+            val elapsedMs = (System.nanoTime() - startNs) / 1_000_000
+            log.info("History render: items=$itemCount appended=$appended took ${elapsedMs}ms")
+        }
+    }
+
+    private fun renderTurnsFromArray(turns: JSONArray) {
+        val startNs = System.nanoTime()
+        val turnCount = turns.length()
+        runOnUi {
+            withBulkRender {
+                for (index in 0 until turns.length()) {
+                    val turn = turns.optJSONObject(index) ?: continue
+                    val items = turn.optJSONArray("items") ?: continue
+                    appendItemsFromArray(items)
+                }
+            }
+            val elapsedMs = (System.nanoTime() - startNs) / 1_000_000
+            log.info("History render: turns=$turnCount took ${elapsedMs}ms")
+        }
+    }
+
+    private fun appendItemsFromArray(items: JSONArray) {
+        for (index in 0 until items.length()) {
+            val item = items.optJSONObject(index) ?: continue
+            val type = item.optString("type")
+            when (type) {
+                "userMessage" -> {
+                    val content = item.optJSONArray("content")?.optJSONObject(0)?.optString("text")
+                    if (!content.isNullOrBlank()) {
+                        appendMessage(MessageKind.USER, content)
                     }
-                    "agentMessage" -> {
-                        val text = item.optString("text")
-                        if (text.isNotBlank()) {
-                            appendMessage(MessageKind.ASSISTANT, text)
-                        }
+                }
+                "agentMessage" -> {
+                    val text = item.optString("text")
+                    if (text.isNotBlank()) {
+                        appendMessage(MessageKind.ASSISTANT, text)
                     }
                 }
             }
         }
     }
 
-    private fun renderTurnsFromArray(turns: JSONArray) {
-        runOnUi {
-            for (index in 0 until turns.length()) {
-                val turn = turns.optJSONObject(index) ?: continue
-                val items = turn.optJSONArray("items") ?: continue
-                renderItemsFromArray(items)
+    private inline fun withBulkRender(action: () -> Unit) {
+        bulkRenderDepth++
+        try {
+            action()
+        } finally {
+            bulkRenderDepth--
+            if (bulkRenderDepth == 0) {
+                renderTranscript()
             }
         }
     }

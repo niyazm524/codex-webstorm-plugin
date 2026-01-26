@@ -1,10 +1,17 @@
 package com.github.niyazm524.codexwebstormplugin.toolWindow
 
 import com.intellij.icons.AllIcons
+import com.intellij.openapi.actionSystem.ActionManager
+import com.intellij.openapi.actionSystem.AnAction
+import com.intellij.openapi.actionSystem.AnActionEvent
+import com.intellij.openapi.actionSystem.DefaultActionGroup
+import com.intellij.openapi.actionSystem.ex.ComboBoxAction
+import com.intellij.openapi.util.IconLoader
 import com.intellij.ui.JBColor
 import com.intellij.ui.components.JBPanel
 import com.intellij.ui.components.JBScrollPane
 import com.intellij.ui.components.JBTextArea
+import com.intellij.util.IconUtil
 import com.intellij.util.ui.JBUI
 import java.awt.BorderLayout
 import java.awt.Dimension
@@ -13,31 +20,39 @@ import java.awt.event.ActionEvent
 import javax.swing.AbstractAction
 import javax.swing.Box
 import javax.swing.BoxLayout
+import javax.swing.Icon
 import javax.swing.JButton
-import javax.swing.JComboBox
 import javax.swing.JComponent
 import javax.swing.JLabel
-import javax.swing.JList
 import javax.swing.JPanel
 import javax.swing.KeyStroke
 import javax.swing.ScrollPaneConstants
-import javax.swing.DefaultListCellRenderer
-import javax.swing.Icon
 
 class CodexChatViewPanel(
-    private val messageRenderer: CodexMessageRenderer,
+        private val messageRenderer: CodexMessageRenderer,
 ) {
-    private data class ComboOption(val label: String, val icon: Icon)
+    private data class DropdownOption(val label: String, val icon: Icon)
+    private data class DropdownModel(
+            val options: List<DropdownOption>,
+            var selected: DropdownOption
+    )
+
+    private val sendIcon = loadVscodeIcon("SvgArrowUp")
+    private val stopIcon = loadVscodeIcon("SvgPauseCircle")
 
     private val messageList =
             JBPanel<JBPanel<*>>().apply {
                 layout = BoxLayout(this, BoxLayout.Y_AXIS)
                 isOpaque = false
+                alignmentY = 0.0f
+            }
+    private val messageContainer =
+            JPanel(BorderLayout()).apply {
+                isOpaque = false
+                add(messageList, BorderLayout.NORTH)
             }
     private val chatNameLabel =
-            JLabel("New chat").apply {
-                foreground = JBColor(0xCFCFCF, 0xCFCFCF)
-            }
+            JLabel("New chat").apply { foreground = JBColor(0xCFCFCF, 0xCFCFCF) }
     private val backButton =
             JButton(AllIcons.Actions.Back).apply {
                 toolTipText = "Back to chats"
@@ -54,7 +69,7 @@ class CodexChatViewPanel(
             }
     private val sendButton =
             JButton().apply {
-                icon = AllIcons.Actions.RunAll
+                icon = sendIcon
                 toolTipText = "Send"
                 isFocusPainted = false
                 addActionListener { handleSendOrStop() }
@@ -71,17 +86,18 @@ class CodexChatViewPanel(
                 JBPanel<JBPanel<*>>(BorderLayout()).apply {
                     isOpaque = false
                     border = JBUI.Borders.empty(10, 6, 6, 12)
-                    val titleRow = JPanel(FlowLayout(FlowLayout.LEFT, 0, 0)).apply {
-                        isOpaque = false
-                        add(backButton)
-                        add(Box.createHorizontalStrut(4))
-                        add(chatNameLabel)
-                    }
+                    val titleRow =
+                            JPanel(FlowLayout(FlowLayout.LEFT, 0, 0)).apply {
+                                isOpaque = false
+                                add(backButton)
+                                add(Box.createHorizontalStrut(4))
+                                add(chatNameLabel)
+                            }
                     add(titleRow, BorderLayout.CENTER)
                 }
 
         val transcriptScroll =
-                JBScrollPane(messageList).apply {
+                JBScrollPane(messageContainer).apply {
                     preferredSize = Dimension(420, 360)
                     horizontalScrollBarPolicy = ScrollPaneConstants.HORIZONTAL_SCROLLBAR_NEVER
                 }
@@ -98,41 +114,57 @@ class CodexChatViewPanel(
                     icon = AllIcons.General.Add
                     isFocusPainted = false
                 }
-        val modeCombo =
-                JComboBox(
-                        arrayOf(
-                                ComboOption("Chat", AllIcons.Actions.Lightning),
-                                ComboOption("Agent", AllIcons.Actions.RunAll),
-                                ComboOption("Agent with full access", AllIcons.Actions.Resume),
-                        )
-                ).apply {
-                    toolTipText = "Agent mode"
+        val chatIcon = loadVscodeIcon("SvgChat")
+        val agentIcon = loadVscodeIcon("SvgRobot")
+        val fullAccessIcon = loadVscodeIcon("SvgSkip")
+        val modelIcon = IconUtil.scale(loadVscodeIcon("SvgCube"), null, 1.9f)
+        val reasoningMinimalIcon = loadVscodeIcon("SvgReasoningMinimal")
+        val reasoningLowIcon = loadVscodeIcon("SvgReasoningLow")
+        val reasoningMediumIcon = loadVscodeIcon("SvgReasoningMedium")
+        val reasoningHighIcon = loadVscodeIcon("SvgReasoningHigh")
+        val reasoningExtraHighIcon = loadVscodeIcon("SvgReasoningExtraHigh")
+        val modeModel =
+                DropdownModel(
+                        listOf(
+                                DropdownOption("Chat", chatIcon),
+                                DropdownOption("Agent", agentIcon),
+                                DropdownOption("Agent with full access", fullAccessIcon),
+                        ),
+                        DropdownOption("Chat", chatIcon),
+                )
+        val modelModel =
+                DropdownModel(
+                        listOf(
+                                DropdownOption("gpt-5.1-codex", modelIcon),
+                                DropdownOption("gpt-5-codex", modelIcon),
+                        ),
+                        DropdownOption("gpt-5.1-codex", modelIcon),
+                )
+        val reasoningModel =
+                DropdownModel(
+                        listOf(
+                                DropdownOption("minimal", reasoningMinimalIcon),
+                                DropdownOption("low", reasoningLowIcon),
+                                DropdownOption("medium", reasoningMediumIcon),
+                                DropdownOption("high", reasoningHighIcon),
+                                DropdownOption("extra high", reasoningExtraHighIcon),
+                        ),
+                        DropdownOption("medium", reasoningMediumIcon),
+                )
+        val modeAction = CodexDropdownAction("Agent mode", modeModel)
+        val modelAction = CodexDropdownAction("Model", modelModel)
+        val reasoningAction = CodexDropdownAction("Reasoning effort", reasoningModel)
+        val toolbarGroup =
+                DefaultActionGroup().apply {
+                    add(modeAction)
+                    add(modelAction)
+                    add(reasoningAction)
                 }
-        val modelCombo =
-                JComboBox(
-                        arrayOf(
-                                ComboOption("gpt-5.1-codex", AllIcons.General.Settings),
-                                ComboOption("gpt-5-codex", AllIcons.General.Settings),
-                        )
-                ).apply {
-                    toolTipText = "Model"
-                }
-        val reasoningCombo =
-                JComboBox(
-                        arrayOf(
-                            ComboOption("low", AllIcons.Actions.Lightning),
-                            ComboOption("medium", AllIcons.Actions.Lightning),
-                            ComboOption("high", AllIcons.Actions.Lightning),
-                            ComboOption("very high", AllIcons.Actions.Lightning),
-                        )
-                ).apply {
-                    toolTipText = "Reasoning effort"
-                }
+        val toolbar =
+                ActionManager.getInstance()
+                        .createActionToolbar("CodexChatToolbar", toolbarGroup, true)
 
         applySquareButton(attachButton)
-        applyIconCombo(modeCombo)
-        applyIconCombo(modelCombo)
-        applyIconCombo(reasoningCombo)
 
         inputField.inputMap.put(KeyStroke.getKeyStroke("ctrl ENTER"), "sendMessage")
         inputField.actionMap.put(
@@ -155,10 +187,9 @@ class CodexChatViewPanel(
                     isOpaque = false
                     border = JBUI.Borders.empty(4, 6, 6, 12)
                     add(attachButton)
-                    add(modeCombo)
-                    add(modelCombo)
-                    add(reasoningCombo)
+                    add(toolbar.component)
                 }
+        toolbar.targetComponent = optionsPanel
 
         // Clear button removed per request.
 
@@ -175,24 +206,26 @@ class CodexChatViewPanel(
         val bottomPanel =
                 JPanel(BorderLayout()).apply {
                     isOpaque = false
-                    val stacked = JPanel().apply {
-                        layout = BoxLayout(this, BoxLayout.Y_AXIS)
-                        isOpaque = false
-                        add(inputPanel)
-                        add(
-                                JPanel(BorderLayout()).apply {
-                                    isOpaque = false
-                                    add(optionsPanel, BorderLayout.WEST)
-                                    add(
-                                            JPanel(FlowLayout(FlowLayout.RIGHT, 0, 0)).apply {
-                                                isOpaque = false
-                                                add(sendButton)
-                                            },
-                                            BorderLayout.EAST
-                                    )
-                                }
-                        )
-                    }
+                    val stacked =
+                            JPanel().apply {
+                                layout = BoxLayout(this, BoxLayout.Y_AXIS)
+                                isOpaque = false
+                                add(inputPanel)
+                                add(
+                                        JPanel(BorderLayout()).apply {
+                                            isOpaque = false
+                                            add(optionsPanel, BorderLayout.WEST)
+                                            add(
+                                                    JPanel(FlowLayout(FlowLayout.RIGHT, 0, 0))
+                                                            .apply {
+                                                                isOpaque = false
+                                                                add(sendButton)
+                                                            },
+                                                    BorderLayout.EAST
+                                            )
+                                        }
+                                )
+                            }
                     add(stacked, BorderLayout.CENTER)
                 }
 
@@ -245,10 +278,10 @@ class CodexChatViewPanel(
     fun setStreaming(streaming: Boolean) {
         isStreaming = streaming
         if (streaming) {
-            sendButton.icon = AllIcons.Actions.Suspend
+            sendButton.icon = stopIcon
             sendButton.toolTipText = "Stop"
         } else {
-            sendButton.icon = AllIcons.Actions.RunAll
+            sendButton.icon = sendIcon
             sendButton.toolTipText = "Send"
         }
     }
@@ -271,35 +304,39 @@ class CodexChatViewPanel(
         button.maximumSize = Dimension(size, size)
     }
 
-    private fun applyIconCombo(combo: JComboBox<ComboOption>) {
-        combo.renderer =
-                object : DefaultListCellRenderer() {
-                    override fun getListCellRendererComponent(
-                            list: JList<*>?,
-                            value: Any?,
-                            index: Int,
-                            isSelected: Boolean,
-                            cellHasFocus: Boolean
-                    ): java.awt.Component {
-                        val label =
-                                super.getListCellRendererComponent(
-                                        list,
-                                        value,
-                                        index,
-                                        isSelected,
-                                        cellHasFocus
-                                ) as JLabel
-                        val option = value as? ComboOption
-                        if (option != null) {
-                            label.icon = option.icon
-                            label.text = if (index == -1) "" else option.label
+    private fun loadVscodeIcon(name: String): Icon {
+        return IconLoader.getIcon("/icons/vscode/$name.svg", CodexChatViewPanel::class.java)
+    }
+
+    private class CodexDropdownAction(
+            private val label: String,
+            private val model: DropdownModel,
+    ) : ComboBoxAction() {
+        init {
+            templatePresentation.icon = model.selected.icon
+            templatePresentation.text = ""
+        }
+        override fun createPopupActionGroup(button: JComponent): DefaultActionGroup {
+            val group = DefaultActionGroup()
+            model.options.forEach { option ->
+                group.add(
+                        object : AnAction(option.label, null, option.icon) {
+                            override fun actionPerformed(e: AnActionEvent) {
+                                model.selected = option
+                            }
                         }
-                        return label
-                    }
-                }
-        val size = Dimension(36, 36)
-        combo.preferredSize = size
-        combo.minimumSize = size
-        combo.maximumSize = size
+                )
+            }
+            return group
+        }
+
+        override fun update(e: AnActionEvent) {
+            e.presentation.icon = model.selected.icon
+            e.presentation.text = ""
+            e.presentation.description = "$label: ${model.selected.label}"
+        }
+
+        override fun getActionUpdateThread() =
+                com.intellij.openapi.actionSystem.ActionUpdateThread.EDT
     }
 }

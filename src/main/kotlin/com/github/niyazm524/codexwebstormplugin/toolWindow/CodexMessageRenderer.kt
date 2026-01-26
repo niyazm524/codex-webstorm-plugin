@@ -58,9 +58,9 @@ class CodexMessageRenderer(private val containerWidthProvider: () -> Int) {
 
         return JBPanel<JBPanel<*>>(FlowLayout(FlowLayout.RIGHT, 0, 0)).apply {
             isOpaque = false
-            border = JBUI.Borders.empty(6, 12)
+            border = JBUI.Borders.empty(2, 12, 6, 12)
             add(bubble)
-            maximumSize = Dimension(Int.MAX_VALUE, bubble.preferredSize.height + 12)
+            maximumSize = Dimension(Int.MAX_VALUE, bubble.preferredSize.height + 8)
         }
     }
 
@@ -128,7 +128,21 @@ class CodexMessageRenderer(private val containerWidthProvider: () -> Int) {
     private fun markdownToHtml(text: String): String {
         val flavour = GFMFlavourDescriptor()
         val parsedTree = MarkdownParser(flavour).buildMarkdownTreeFromString(text)
-        return HtmlGenerator(text, parsedTree, flavour).generateHtml()
+        val body = HtmlGenerator(text, parsedTree, flavour).generateHtml()
+        return """
+            <html>
+              <head>
+                <style>
+                  body { margin: 0; padding: 0; }
+                  p { margin: 0; padding: 0; }
+                  ul, ol { margin: 0; padding-left: 1.2em; }
+                  pre { margin: 0; }
+                  code { font-family: Menlo, monospace; }
+                </style>
+              </head>
+              <body>$body</body>
+            </html>
+        """.trimIndent()
     }
 
     private fun escapeHtml(text: String): String {
@@ -169,7 +183,7 @@ class CodexMessageRenderer(private val containerWidthProvider: () -> Int) {
                 }
 
         init {
-            border = JBUI.Borders.empty(12, 16)
+            border = JBUI.Borders.empty(6, 16)
             add(content, BorderLayout.CENTER)
         }
 
@@ -177,7 +191,7 @@ class CodexMessageRenderer(private val containerWidthProvider: () -> Int) {
             val containerWidth = containerWidthProvider().coerceAtLeast(420)
             val maxWidth = (containerWidth * 0.7).toInt().coerceAtLeast(240)
             val horizontalPadding = 32
-            val verticalPadding = 24
+            val verticalPadding = 12
             content.setSize(maxWidth - horizontalPadding, Int.MAX_VALUE)
             val textSize = content.preferredSize
             return Dimension(

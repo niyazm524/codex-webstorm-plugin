@@ -4,6 +4,9 @@ import com.intellij.ui.JBColor
 import com.intellij.ui.components.JBPanel
 import com.intellij.ui.components.JBTextArea
 import com.intellij.util.ui.JBUI
+import org.intellij.markdown.flavours.gfm.GFMFlavourDescriptor
+import org.intellij.markdown.html.HtmlGenerator
+import org.intellij.markdown.parser.MarkdownParser
 import java.awt.BorderLayout
 import java.awt.FlowLayout
 import java.awt.Dimension
@@ -12,6 +15,7 @@ import java.awt.Graphics2D
 import java.awt.RenderingHints
 import javax.swing.JButton
 import javax.swing.JComponent
+import javax.swing.JEditorPane
 import javax.swing.JLabel
 import javax.swing.JPanel
 import javax.swing.JTextPane
@@ -47,10 +51,9 @@ class CodexMessageRenderer(private val containerWidthProvider: () -> Int) {
     private fun renderUserBubble(text: String): JComponent {
         val bubble =
                 BubblePanel(
-                        text,
+                        markdownToHtml(text),
                         containerWidthProvider,
-                        JBColor(0xE6F0FF, 0x2B3A55),
-                        JBColor(0x1F4B99, 0xBBD0FF)
+                        JBColor(0xE6F0FF, 0x2B3A55)
                 )
 
         return JBPanel<JBPanel<*>>(FlowLayout(FlowLayout.RIGHT, 0, 0)).apply {
@@ -63,15 +66,11 @@ class CodexMessageRenderer(private val containerWidthProvider: () -> Int) {
 
     private fun renderAssistantMessage(text: String): JComponent {
         val pane =
-                JTextPane().apply {
+                JEditorPane("text/html", markdownToHtml(text)).apply {
                     isEditable = false
                     isOpaque = false
+                    putClientProperty(JEditorPane.HONOR_DISPLAY_PROPERTIES, true)
                 }
-        val doc = pane.styledDocument
-        val contentStyle = pane.addStyle("content", null)
-        StyleConstants.setForeground(contentStyle, JBColor(0x222222, 0xD5D8DC))
-        doc.insertString(doc.length, text, contentStyle)
-
         return JBPanel<JBPanel<*>>(BorderLayout()).apply {
             isOpaque = false
             border = JBUI.Borders.empty(6, 12)
@@ -126,6 +125,12 @@ class CodexMessageRenderer(private val containerWidthProvider: () -> Int) {
         }
     }
 
+    private fun markdownToHtml(text: String): String {
+        val flavour = GFMFlavourDescriptor()
+        val parsedTree = MarkdownParser(flavour).buildMarkdownTreeFromString(text)
+        return HtmlGenerator(text, parsedTree, flavour).generateHtml()
+    }
+
     private fun escapeHtml(text: String): String {
         return text
                 .replace("&", "&amp;")
@@ -151,25 +156,21 @@ class CodexMessageRenderer(private val containerWidthProvider: () -> Int) {
     }
 
     private class BubblePanel(
-            text: String,
+            html: String,
             private val containerWidthProvider: () -> Int,
             fill: JBColor,
-            textColor: JBColor,
     ) : RoundedPanel(18, fill) {
-        private val textArea =
-                JBTextArea().apply {
+        private val content =
+                JEditorPane("text/html", html).apply {
                     isEditable = false
                     isOpaque = false
-                    lineWrap = true
-                    wrapStyleWord = true
-                    this.text = text
-                    foreground = textColor
+                    putClientProperty(JEditorPane.HONOR_DISPLAY_PROPERTIES, true)
                     border = JBUI.Borders.empty()
                 }
 
         init {
             border = JBUI.Borders.empty(12, 16)
-            add(textArea, BorderLayout.CENTER)
+            add(content, BorderLayout.CENTER)
         }
 
         override fun getPreferredSize(): Dimension {
@@ -177,8 +178,8 @@ class CodexMessageRenderer(private val containerWidthProvider: () -> Int) {
             val maxWidth = (containerWidth * 0.7).toInt().coerceAtLeast(240)
             val horizontalPadding = 32
             val verticalPadding = 24
-            textArea.setSize(maxWidth - horizontalPadding, Int.MAX_VALUE)
-            val textSize = textArea.preferredSize
+            content.setSize(maxWidth - horizontalPadding, Int.MAX_VALUE)
+            val textSize = content.preferredSize
             return Dimension(
                     maxWidth.coerceAtMost(textSize.width + horizontalPadding),
                     textSize.height + verticalPadding

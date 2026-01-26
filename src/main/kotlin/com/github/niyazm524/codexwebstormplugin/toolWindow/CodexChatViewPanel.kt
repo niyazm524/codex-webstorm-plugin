@@ -50,6 +50,7 @@ class CodexChatViewPanel(
                 wrapStyleWord = true
                 rows = 3
                 toolTipText = "Ask Codex... (Ctrl+Enter to send)"
+                emptyText.text = "Ask Codex..."
             }
     private val sendButton =
             JButton().apply {

@@ -66,15 +66,17 @@ class CodexMessageRenderer(private val containerWidthProvider: () -> Int) {
 
     private fun renderAssistantMessage(text: String): JComponent {
         val pane =
-                JEditorPane("text/html", markdownToHtml(text)).apply {
-                    isEditable = false
-                    isOpaque = false
-                    putClientProperty(JEditorPane.HONOR_DISPLAY_PROPERTIES, true)
-                }
-        return JBPanel<JBPanel<*>>(BorderLayout()).apply {
+                ConstrainedHtmlPanel(
+                        markdownToHtml(text),
+                        containerWidthProvider,
+                        maxWidthRatio = 0.96,
+                        minWidth = 320
+                )
+        return JBPanel<JBPanel<*>>(FlowLayout(FlowLayout.LEFT, 0, 0)).apply {
             isOpaque = false
             border = JBUI.Borders.empty(6, 12)
-            add(pane, BorderLayout.CENTER)
+            add(pane)
+            maximumSize = Dimension(Int.MAX_VALUE, pane.preferredSize.height + 8)
         }
     }
 
@@ -133,10 +135,11 @@ class CodexMessageRenderer(private val containerWidthProvider: () -> Int) {
             <html>
               <head>
                 <style>
-                  body { margin: 0; padding: 0; }
+                  body { margin: 0; padding: 0; overflow-wrap: anywhere; word-wrap: break-word; }
                   p { margin: 0; padding: 0; }
                   ul, ol { margin: 0; padding-left: 1.2em; }
-                  pre { margin: 0; }
+                  pre { margin: 0; white-space: pre-wrap; word-break: break-word; }
+                  code { font-family: Menlo, monospace; white-space: pre-wrap; word-break: break-word; }
                   code { font-family: Menlo, monospace; }
                 </style>
               </head>
@@ -201,5 +204,37 @@ class CodexMessageRenderer(private val containerWidthProvider: () -> Int) {
         }
 
         override fun getMaximumSize(): Dimension = preferredSize
+    }
+
+    private class ConstrainedHtmlPanel(
+            html: String,
+            private val containerWidthProvider: () -> Int,
+            private val maxWidthRatio: Double,
+            private val minWidth: Int,
+    ) : JBPanel<JBPanel<*>>(BorderLayout()) {
+        private val content =
+                JEditorPane("text/html", html).apply {
+                    isEditable = false
+                    isOpaque = false
+                    putClientProperty(JEditorPane.HONOR_DISPLAY_PROPERTIES, true)
+                    border = JBUI.Borders.empty()
+                }
+
+        init {
+            isOpaque = false
+            add(content, BorderLayout.CENTER)
+        }
+
+        override fun getPreferredSize(): Dimension {
+            val containerWidth = containerWidthProvider().coerceAtLeast(420)
+            val maxWidth = (containerWidth * maxWidthRatio).toInt().coerceAtLeast(minWidth)
+            content.setSize(maxWidth, Int.MAX_VALUE)
+            val textSize = content.preferredSize
+            return Dimension(maxWidth, textSize.height)
+        }
+
+        override fun getMaximumSize(): Dimension = preferredSize
+
+        override fun getMinimumSize(): Dimension = preferredSize
     }
 }

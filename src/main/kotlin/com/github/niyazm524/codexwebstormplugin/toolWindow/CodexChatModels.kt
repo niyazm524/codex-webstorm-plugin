@@ -17,4 +17,4 @@ data class ChatMessage(
     val actions: List<MessageAction> = emptyList(),
 )
 
-data class ChatSession(val id: String, val title: String)
+data class ChatSession(val id: String, val title: String, val updatedAtSeconds: Long?)

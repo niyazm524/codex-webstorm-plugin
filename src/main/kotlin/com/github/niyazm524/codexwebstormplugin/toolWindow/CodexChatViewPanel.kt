@@ -14,9 +14,12 @@ import com.intellij.ui.components.JBTextArea
 import com.intellij.util.IconUtil
 import com.intellij.util.ui.JBUI
 import java.awt.BorderLayout
+import java.awt.FontMetrics
 import java.awt.Dimension
 import java.awt.FlowLayout
 import java.awt.event.ActionEvent
+import java.awt.event.ComponentAdapter
+import java.awt.event.ComponentEvent
 import javax.swing.AbstractAction
 import javax.swing.Box
 import javax.swing.BoxLayout
@@ -52,7 +55,11 @@ class CodexChatViewPanel(
                 add(messageList, BorderLayout.NORTH)
             }
     private val chatNameLabel =
-            JLabel("New chat").apply { foreground = JBColor(0xCFCFCF, 0xCFCFCF) }
+            JLabel("New chat").apply {
+                foreground = JBColor(0xCFCFCF, 0xCFCFCF)
+                minimumSize = Dimension(0, preferredSize.height)
+                maximumSize = Dimension(Int.MAX_VALUE, preferredSize.height)
+            }
     private val backButton =
             JButton(AllIcons.Actions.Back).apply {
                 toolTipText = "Back to chats"
@@ -74,12 +81,23 @@ class CodexChatViewPanel(
                 isFocusPainted = false
                 addActionListener { handleSendOrStop() }
             }
+    private val newChatButton =
+            JButton().apply {
+                icon = loadVscodeIcon("SvgCompose")
+                toolTipText = "New chat"
+                isFocusPainted = false
+            }
 
     private var onSend: ((String) -> Unit)? = null
     private var onBack: (() -> Unit)? = null
     private var onInterrupt: (() -> Unit)? = null
     private var onClear: (() -> Unit)? = null
+    private var onNewChat: (() -> Unit)? = null
     private var isStreaming = false
+    private var chatTitleRaw = "New chat"
+    private var titleRowPanel: JPanel? = null
+    private var titleLeftPanel: JPanel? = null
+    private var titleRightPanel: JPanel? = null
 
     fun build(): JComponent {
         val header =
@@ -87,11 +105,35 @@ class CodexChatViewPanel(
                     isOpaque = false
                     border = JBUI.Borders.empty(10, 6, 6, 12)
                     val titleRow =
-                            JPanel(FlowLayout(FlowLayout.LEFT, 0, 0)).apply {
+                            JPanel(BorderLayout()).apply {
                                 isOpaque = false
-                                add(backButton)
-                                add(Box.createHorizontalStrut(4))
-                                add(chatNameLabel)
+                                titleRowPanel = this
+                                add(
+                                        JPanel(FlowLayout(FlowLayout.LEFT, 0, 0)).apply {
+                                            isOpaque = false
+                                            add(backButton)
+                                            add(Box.createHorizontalStrut(4))
+                                            titleLeftPanel = this
+                                        },
+                                        BorderLayout.WEST
+                                )
+                                add(chatNameLabel, BorderLayout.CENTER)
+                                add(
+                                        JPanel(FlowLayout(FlowLayout.RIGHT, 0, 0)).apply {
+                                            isOpaque = false
+                                            border = JBUI.Borders.empty(0, 6, 0, 0)
+                                            add(newChatButton)
+                                            titleRightPanel = this
+                                        },
+                                        BorderLayout.EAST
+                                )
+                                addComponentListener(
+                                        object : ComponentAdapter() {
+                                            override fun componentResized(event: ComponentEvent) {
+                                                updateChatTitleDisplay(this@apply, chatNameLabel)
+                                            }
+                                        }
+                                )
                             }
                     add(titleRow, BorderLayout.CENTER)
                 }
@@ -194,14 +236,16 @@ class CodexChatViewPanel(
         // Clear button removed per request.
 
         backButton.addActionListener { onBack?.invoke() }
+        newChatButton.addActionListener { onNewChat?.invoke() }
         applySquareButton(backButton)
+        applySquareButton(newChatButton)
         applySquareButton(sendButton)
         applySquareButton(attachButton)
 
         val topPanel =
                 JPanel(BorderLayout()).apply {
                     isOpaque = false
-                    add(header, BorderLayout.WEST)
+                    add(header, BorderLayout.CENTER)
                 }
         val bottomPanel =
                 JPanel(BorderLayout()).apply {
@@ -248,7 +292,9 @@ class CodexChatViewPanel(
     }
 
     fun setChatTitle(title: String) {
+        chatTitleRaw = title
         chatNameLabel.text = title
+        titleRowPanel?.let { updateChatTitleDisplay(it, chatNameLabel) }
     }
 
     fun setBackVisible(visible: Boolean) {
@@ -265,6 +311,10 @@ class CodexChatViewPanel(
 
     fun setOnBack(handler: () -> Unit) {
         onBack = handler
+    }
+
+    fun setOnNewChat(handler: () -> Unit) {
+        onNewChat = handler
     }
 
     fun setOnClear(handler: () -> Unit) {
@@ -302,6 +352,32 @@ class CodexChatViewPanel(
         button.preferredSize = Dimension(size, size)
         button.minimumSize = Dimension(size, size)
         button.maximumSize = Dimension(size, size)
+    }
+
+    private fun updateChatTitleDisplay(titleRow: JPanel, label: JLabel) {
+        if (titleRow.width <= 0) return
+        val leftWidth = titleLeftPanel?.preferredSize?.width ?: 0
+        val rightWidth = titleRightPanel?.preferredSize?.width ?: 0
+        val availableWidth =
+                (titleRow.width
+                        - leftWidth
+                        - rightWidth
+                        - JBUI.scale(8))
+                        .coerceAtLeast(JBUI.scale(80))
+        val metrics = label.getFontMetrics(label.font)
+        label.text = ellipsize(chatTitleRaw, metrics, availableWidth)
+    }
+
+    private fun ellipsize(text: String, metrics: FontMetrics, maxWidth: Int): String {
+        if (text.isBlank() || metrics.stringWidth(text) <= maxWidth) return text
+        val ellipsis = "…"
+        val targetWidth = maxWidth - metrics.stringWidth(ellipsis)
+        if (targetWidth <= 0) return ellipsis
+        var end = text.length
+        while (end > 0 && metrics.stringWidth(text.substring(0, end)) > targetWidth) {
+            end--
+        }
+        return text.substring(0, end).trimEnd() + ellipsis
     }
 
     private fun loadVscodeIcon(name: String): Icon {

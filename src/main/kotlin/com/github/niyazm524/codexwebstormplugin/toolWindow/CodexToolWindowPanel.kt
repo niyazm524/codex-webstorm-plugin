@@ -39,6 +39,7 @@ class CodexToolWindowPanel(toolWindow: ToolWindow) : CodexAppServerListener {
         chatViewPanel = CodexChatViewPanel(messageRenderer)
         chatViewPanel.setOnSend { text -> handleSend(text) }
         chatViewPanel.setOnBack { showChatList() }
+        chatViewPanel.setOnNewChat { startNewChat() }
         chatViewPanel.setOnClear { clearChat() }
         chatViewPanel.setOnInterrupt { interruptTurn() }
 
@@ -195,7 +196,13 @@ class CodexToolWindowPanel(toolWindow: ToolWindow) : CodexAppServerListener {
                             threadId = newThreadId
                             val title = pendingChatTitle ?: "New chat"
                             if (chatSessions.none { it.id == newThreadId }) {
-                                chatSessions.add(ChatSession(newThreadId, title))
+                                chatSessions.add(
+                                        ChatSession(
+                                                newThreadId,
+                                                title,
+                                                System.currentTimeMillis() / 1000
+                                        )
+                                )
                                 runOnUi { updateChatList() }
                             }
                         }
@@ -528,7 +535,14 @@ class CodexToolWindowPanel(toolWindow: ToolWindow) : CodexAppServerListener {
                         val id = item.optString("id")
                         val preview = item.optString("preview", "Chat")
                         if (id.isNotBlank()) {
-                            sessions.add(ChatSession(id, preview.ifBlank { "Chat" }))
+                            val updatedAt = item.optLong("updatedAt", 0)
+                            sessions.add(
+                                    ChatSession(
+                                            id,
+                                            preview.ifBlank { "Chat" },
+                                            updatedAt.takeIf { it > 0 }
+                                    )
+                            )
                         }
                     }
                     chatSessions.clear()

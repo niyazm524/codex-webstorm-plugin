@@ -10,7 +10,8 @@ class CodexToolWindowFactory : ToolWindowFactory {
     override fun createToolWindowContent(project: Project, toolWindow: ToolWindow) {
         val codexToolWindow = CodexToolWindowPanel(toolWindow)
         val content =
-                ContentFactory.getInstance().createContent(codexToolWindow.getContent(), null, false)
+                ContentFactory.getInstance()
+                        .createContent(codexToolWindow.getContent(), null, false)
         toolWindow.contentManager.addContent(content)
     }
 

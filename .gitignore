@@ -5,3 +5,4 @@
 .kotlin
 .qodana
 build
+/resources/codex-json-schema/

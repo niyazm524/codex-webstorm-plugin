@@ -18,6 +18,7 @@ class CodexToolWindowPanel(toolWindow: ToolWindow) : CodexAppServerListener {
     private val messages = mutableListOf<ChatMessage>()
     private val assistantMessageIndexByItemId = mutableMapOf<String, Int>()
     private val toolMessageIndexByItemId = mutableMapOf<String, Int>()
+    private val mcpRequestByItemId = mutableMapOf<String, String>()
     private var diffMessageId: String? = null
     private var threadId: String? = null
     private var activeTurnId: String? = null
@@ -197,6 +198,13 @@ class CodexToolWindowPanel(toolWindow: ToolWindow) : CodexAppServerListener {
     }
 
     private fun handleSend(text: String) {
+        val trimmed = text.trim()
+        if (trimmed.startsWith("/")) {
+            if (handleSlashCommand(trimmed)) {
+                chatViewPanel.clearInput()
+                return
+            }
+        }
         appendMessage(MessageKind.USER, text)
         if (threadId == null && pendingChatTitle == null) {
             pendingChatTitle = deriveChatTitle(text)
@@ -287,11 +295,20 @@ class CodexToolWindowPanel(toolWindow: ToolWindow) : CodexAppServerListener {
                 val server = item.optString("server", "mcp")
                 val tool = item.optString("tool", "")
                 val status = item.optString("status", "running")
-                val label = "MCP: $server/$tool ($status)"
+                val requestDetails = formatMcpRequest(item)
+                val label =
+                        if (requestDetails.isBlank()) {
+                            "MCP request: $server/$tool ($status)"
+                        } else {
+                            "MCP request: $server/$tool ($status)\n---\n$requestDetails"
+                        }
                 runOnUi {
                     val message = appendMessage(MessageKind.TOOL, label)
                     if (itemId.isNotBlank()) {
                         toolMessageIndexByItemId[itemId] = messages.indexOf(message)
+                        if (requestDetails.isNotBlank()) {
+                            mcpRequestByItemId[itemId] = requestDetails
+                        }
                     }
                 }
             }
@@ -328,11 +345,27 @@ class CodexToolWindowPanel(toolWindow: ToolWindow) : CodexAppServerListener {
             "mcpToolCall" -> {
                 val status = item.optString("status", "completed")
                 val result = item.optString("result", "")
+                val requestDetails = mcpRequestByItemId[itemId].orEmpty()
+                val responseDetails = formatMcpResponse(item)
+                val summary = "MCP completed ($status)"
+                val details =
+                        buildString {
+                            if (requestDetails.isNotBlank()) {
+                                append("Request:\n").append(requestDetails)
+                            }
+                            if (responseDetails.isNotBlank()) {
+                                if (isNotEmpty()) append("\n\n")
+                                append("Response:\n").append(responseDetails)
+                            } else if (result.isNotBlank()) {
+                                if (isNotEmpty()) append("\n\n")
+                                append("Response:\n").append(result)
+                            }
+                        }
                 val label =
-                        if (result.isNotBlank()) {
-                            "MCP completed ($status): $result"
+                        if (details.isBlank()) {
+                            "$summary."
                         } else {
-                            "MCP completed ($status)."
+                            "$summary\n---\n$details"
                         }
                 runOnUi {
                     val index = toolMessageIndexByItemId[itemId]
@@ -398,6 +431,71 @@ class CodexToolWindowPanel(toolWindow: ToolWindow) : CodexAppServerListener {
         }
     }
 
+    private fun handleSlashCommand(text: String): Boolean {
+        val parts = text.split(Regex("\\s+")).filter { it.isNotBlank() }
+        if (parts.isEmpty()) return false
+        return when (parts.first()) {
+            "/mcp" -> {
+                listMcpServers()
+                true
+            }
+            else -> false
+        }
+    }
+
+    private fun listMcpServers() {
+        startAppServerIfNeeded()
+        val placeholder =
+                appendMessage(MessageKind.TOOL, "MCP servers\n---\nLoading MCP servers…")
+        val params = JSONObject().put("limit", 200)
+        appServer
+                .sendRequest("mcpServerStatus/list", params)
+                .thenAccept { result ->
+                    val data = result.optJSONArray("data") ?: JSONArray()
+                    val details = buildMcpServerDetails(data)
+                    val summary = "MCP servers (${data.length()})"
+                    runOnUi {
+                        updateMessageById(placeholder.id, "$summary\n---\n$details")
+                    }
+                }
+                .exceptionally { error ->
+                    runOnUi {
+                        updateMessageById(
+                                placeholder.id,
+                                "MCP servers\n---\nFailed to load MCP servers: ${error.message}"
+                        )
+                    }
+                    null
+                }
+    }
+
+    private fun buildMcpServerDetails(data: JSONArray): String {
+        if (data.length() == 0) return "No MCP servers configured."
+        val builder = StringBuilder()
+        for (index in 0 until data.length()) {
+            val server = data.optJSONObject(index) ?: continue
+            val name = server.optString("name", "unknown")
+            val auth = server.optString("authStatus", "unknown")
+            val tools = server.optJSONObject("tools")
+            val toolNames =
+                    tools?.keys()?.asSequence()?.toList()?.sorted().orEmpty()
+            val resources = server.optJSONArray("resources")
+            val templates = server.optJSONArray("resourceTemplates")
+
+            builder.append("• ").append(name).append("\n")
+            builder.append("  Auth: ").append(auth).append("\n")
+            builder.append("  Tools (").append(toolNames.size).append(")")
+            if (toolNames.isNotEmpty()) {
+                builder.append(": ").append(toolNames.joinToString(", "))
+            }
+            builder.append("\n")
+            builder.append("  Resources: ").append(resources?.length() ?: 0).append("\n")
+            builder.append("  Templates: ").append(templates?.length() ?: 0).append("\n")
+            if (index < data.length() - 1) builder.append("\n")
+        }
+        return builder.toString()
+    }
+
     private fun appendSystemMessage(text: String) {
         appendMessage(MessageKind.SYSTEM, text)
     }
@@ -414,6 +512,29 @@ class CodexToolWindowPanel(toolWindow: ToolWindow) : CodexAppServerListener {
             renderTranscript()
         }
         return message
+    }
+
+    private fun formatMcpRequest(item: JSONObject): String {
+        val input = item.opt("input")
+        val arguments = item.opt("arguments")
+        val params = input ?: arguments ?: item.opt("params")
+        return formatJsonValue(params)
+    }
+
+    private fun formatMcpResponse(item: JSONObject): String {
+        val result = item.opt("result")
+        val error = item.opt("error")
+        val output = result ?: error
+        return formatJsonValue(output)
+    }
+
+    private fun formatJsonValue(value: Any?): String {
+        if (value == null) return ""
+        return when (value) {
+            is JSONObject -> value.toString(2)
+            is JSONArray -> value.toString(2)
+            else -> value.toString()
+        }
     }
 
     private fun appendActionMessage(
@@ -579,17 +700,26 @@ class CodexToolWindowPanel(toolWindow: ToolWindow) : CodexAppServerListener {
 
     private fun loadChatHistory(id: String) {
         if (!appServerStarted) return
-        val params = JSONObject().put("threadId", id)
+        val resumeParams = JSONObject().put("threadId", id)
+        appServer
+                .sendRequest("thread/resume", resumeParams)
+                .exceptionally { error ->
+                    runOnUi { appendSystemMessage("Failed to resume thread: ${error.message}") }
+                    null
+                }
+
+        val readParams = JSONObject().put("threadId", id).put("includeTurns", true)
         val startNs = System.nanoTime()
         appServer
-                .sendRequest("thread/resume", params)
+                .sendRequest("thread/read", readParams)
                 .thenAccept { result ->
                     val elapsedMs = (System.nanoTime() - startNs) / 1_000_000
+                    dumpReadResponse(id, result)
                     val thread = result.optJSONObject("thread")
                     val items = thread?.optJSONArray("items")
                     val turns = thread?.optJSONArray("turns")
                     log.info(
-                            "thread/resume $id completed in ${elapsedMs}ms (items=${items?.length() ?: 0}, turns=${turns?.length() ?: 0})"
+                            "thread/read $id completed in ${elapsedMs}ms (items=${items?.length() ?: 0}, turns=${turns?.length() ?: 0})"
                     )
                     if (items != null) {
                         renderItemsFromArray(items)
@@ -600,8 +730,30 @@ class CodexToolWindowPanel(toolWindow: ToolWindow) : CodexAppServerListener {
                     }
                 }
                 .exceptionally { error ->
-                    runOnUi { appendSystemMessage("Failed to load history: ${error.message}") }
+                    runOnUi { appendSystemMessage("Failed to read history: ${error.message}") }
                     null
+                }
+    }
+
+    private fun dumpReadResponse(threadId: String, payload: JSONObject) {
+        val home = System.getProperty("user.home") ?: return
+        val path = java.nio.file.Paths.get(home, "debug-plugin.log")
+        val timestamp = java.time.Instant.now().toString()
+        val entry =
+                buildString {
+                    append("=== thread/read ").append(threadId).append(" @ ").append(timestamp).append(" ===\n")
+                    append(payload.toString(2)).append("\n")
+                }
+        runCatching {
+                    java.nio.file.Files.writeString(
+                            path,
+                            entry,
+                            java.nio.file.StandardOpenOption.CREATE,
+                            java.nio.file.StandardOpenOption.APPEND
+                    )
+                }
+                .onFailure { error ->
+                    log.warn("Failed to write debug log to $path", error)
                 }
     }
 
@@ -651,6 +803,72 @@ class CodexToolWindowPanel(toolWindow: ToolWindow) : CodexAppServerListener {
                     if (text.isNotBlank()) {
                         appendMessage(MessageKind.ASSISTANT, text)
                     }
+                }
+                "commandExecution" -> {
+                    val command = item.optString("command", "")
+                    val status = item.optString("status", "completed")
+                    val output = item.optString("aggregatedOutput", "")
+                    val summary = "Command: $command ($status)"
+                    val details =
+                            buildString {
+                                if (command.isNotBlank()) {
+                                    append("Command:\n").append(command)
+                                }
+                                if (output.isNotBlank()) {
+                                    if (isNotEmpty()) append("\n\n")
+                                    append("Output:\n").append(output)
+                                }
+                            }
+                    val label =
+                            if (details.isBlank()) {
+                                summary
+                            } else {
+                                "$summary\n---\n$details"
+                            }
+                    appendMessage(MessageKind.TOOL, label)
+                }
+                "fileChange" -> {
+                    val changes = item.optJSONArray("changes") ?: JSONArray()
+                    appendMessage(
+                            MessageKind.TOOL,
+                            "File changes (${changes.length()})"
+                    )
+                    for (changeIndex in 0 until changes.length()) {
+                        val change = changes.optJSONObject(changeIndex) ?: continue
+                        val path = change.optString("path")
+                        val diff = change.optString("diff")
+                        if (path.isNotBlank()) {
+                            appendMessage(MessageKind.TOOL, "Change: $path")
+                        }
+                        if (diff.isNotBlank()) {
+                            appendMessage(MessageKind.DIFF, diff)
+                        }
+                    }
+                }
+                "mcpToolCall" -> {
+                    val server = item.optString("server", "mcp")
+                    val tool = item.optString("tool", "")
+                    val status = item.optString("status", "completed")
+                    val requestDetails = formatMcpRequest(item)
+                    val responseDetails = formatMcpResponse(item)
+                    val summary = "MCP request: $server/$tool ($status)"
+                    val details =
+                            buildString {
+                                if (requestDetails.isNotBlank()) {
+                                    append("Request:\n").append(requestDetails)
+                                }
+                                if (responseDetails.isNotBlank()) {
+                                    if (isNotEmpty()) append("\n\n")
+                                    append("Response:\n").append(responseDetails)
+                                }
+                            }
+                    val label =
+                            if (details.isBlank()) {
+                                summary
+                            } else {
+                                "$summary\n---\n$details"
+                            }
+                    appendMessage(MessageKind.TOOL, label)
                 }
             }
         }

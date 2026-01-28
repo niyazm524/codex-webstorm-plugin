@@ -168,6 +168,13 @@ class CodexMessageRenderer(private val containerWidthProvider: () -> Int) {
 
     private fun buildToolSummaryAndDetails(text: String): Triple<String, String, Boolean> {
         val trimmed = text.trim()
+        val divider = "\n---\n"
+        if (trimmed.contains(divider)) {
+            val parts = trimmed.split(divider, limit = 2)
+            val summary = parts.getOrElse(0) { trimmed }.trim()
+            val details = parts.getOrElse(1) { trimmed }.trim()
+            return Triple(summary.ifBlank { "Tool" }, details, true)
+        }
         val runningPrefix = "Running command:"
         val outputPrefix = "Command output:"
         if (trimmed.startsWith(runningPrefix)) {
@@ -333,6 +340,7 @@ class CodexMessageRenderer(private val containerWidthProvider: () -> Int) {
                     border = JBUI.Borders.empty(0, 12, 0, 12)
                     add(detailsPanel, BorderLayout.CENTER)
                 }
+        private var isExpanded = false
 
         init {
             isOpaque = false
@@ -369,13 +377,23 @@ class CodexMessageRenderer(private val containerWidthProvider: () -> Int) {
         }
 
         private fun toggle() {
-            detailsPanel.isVisible = !detailsPanel.isVisible
+            isExpanded = !isExpanded
+            detailsPanel.isVisible = isExpanded
             toggleButton.icon =
                     if (detailsPanel.isVisible) {
                         com.intellij.icons.AllIcons.General.ArrowDown
                     } else {
                         com.intellij.icons.AllIcons.General.ArrowRight
                     }
+            if (isExpanded) {
+                summaryArea.lineWrap = true
+                summaryArea.wrapStyleWord = false
+                summaryArea.text = summaryText
+            } else {
+                summaryArea.lineWrap = false
+                summaryArea.wrapStyleWord = false
+                updateSummaryText(containerWidthProvider())
+            }
             detailsScroll.preferredSize =
                     if (detailsPanel.isVisible) {
                         Dimension(detailsScroll.preferredSize.width, JBUI.scale(220))
@@ -388,6 +406,10 @@ class CodexMessageRenderer(private val containerWidthProvider: () -> Int) {
 
         private fun updateSummaryText(containerWidth: Int) {
             if (containerWidth <= 0) return
+            if (isExpanded) {
+                summaryArea.text = summaryText
+                return
+            }
             val maxWidth = (containerWidth * 0.96).toInt().coerceAtLeast(320)
             val available = maxWidth - JBUI.scale(36)
             val metrics = summaryArea.getFontMetrics(summaryArea.font)

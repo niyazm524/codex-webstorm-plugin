@@ -14,5 +14,11 @@
                 id="Codex"
                 icon="/icons/vscode/SvgOpenaiBlossom.svg"/>
         <postStartupActivity implementation="com.github.niyazm524.codexwebstormplugin.startup.MyProjectActivity" />
+        <applicationService serviceImplementation="com.github.niyazm524.codexwebstormplugin.services.CodexSettingsState" />
+        <applicationConfigurable
+                parentId="tools"
+                displayName="Codex"
+                id="codex.settings"
+                instance="com.github.niyazm524.codexwebstormplugin.settings.CodexSettingsConfigurable" />
     </extensions>
 </idea-plugin>

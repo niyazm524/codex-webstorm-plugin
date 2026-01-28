@@ -162,6 +162,28 @@ class CodexToolWindowPanel(toolWindow: ToolWindow) : CodexAppServerListener {
         }
     }
 
+    override fun onAppServerExit(exitCode: Int, lastOutputLine: String?) {
+        runOnUi {
+            val details =
+                    if (lastOutputLine.isNullOrBlank()) {
+                        "exit code $exitCode"
+                    } else {
+                        "exit code $exitCode, last output: $lastOutputLine"
+                    }
+            appendSystemMessage("Codex app-server stopped ($details).")
+            chatViewPanel.setStreaming(false)
+        }
+        appServerStarted = false
+    }
+
+    override fun onAppServerError(message: String) {
+        runOnUi {
+            appendSystemMessage(message)
+            chatViewPanel.setStreaming(false)
+        }
+        appServerStarted = false
+    }
+
     private fun startAppServerIfNeeded() {
         if (appServerStarted) return
         val result = appServer.start()
